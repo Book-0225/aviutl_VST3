@@ -71,18 +71,27 @@ public:
     }
     ~HostState() {
         if (!host_running) return;
-        DbgPrint(_T("~HostState: Cleaning up for unique_id %llu"), unique_id);
+        DbgPrint(_T("~HostState: Cleaning up for unique_id %llu, ProcessID %lu"), unique_id, pi.dwProcessId);
         char response[64] = {};
         SendCommandToHost(*this, "exit\n", response, sizeof(response));
         if (pi.hProcess) {
-            WaitForSingleObject(pi.hProcess, 2000);
-            CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            DWORD waitResult = WaitForSingleObject(pi.hProcess, 2000);
+            if (waitResult == WAIT_TIMEOUT) {
+                DbgPrint(_T("Host process %lu did not exit in time, terminating it."), pi.dwProcessId);
+                TerminateProcess(pi.hProcess, 1);
+            }
+            else {
+                DbgPrint(_T("Host process %lu exited gracefully."), pi.dwProcessId);
+            }
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
         }
         if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
         if (pSharedMem) UnmapViewOfFile(pSharedMem);
         if (hShm) CloseHandle(hShm);
         if (hEventClientReady) CloseHandle(hEventClientReady);
         if (hEventHostDone) CloseHandle(hEventHostDone);
+        host_running = false;
     }
 };
 std::mutex g_states_mutex;
@@ -114,7 +123,7 @@ inline constinit auto filter = filter_template(ExEdit::Filter::Flag::Audio);
 inline constinit auto effect = filter_template(ExEdit::Filter::Flag::Audio | ExEdit::Filter::Flag::Effect | ExEdit::Filter::Flag::Unaddable);
 
 // =================================================================
-// フィルター関数実装
+// フィルター関数実装 (変更なし)
 // =================================================================
 BOOL SaveStateIfGuiVisible(ExEdit::Filter* efp) {
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
@@ -288,7 +297,9 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
             if (is_hiding) {
                 DbgPrint(_T("GUI hidden. Getting state to save."));
                 lock.unlock();
-                SaveStateIfGuiVisible(efp);
+                if (SaveStateIfGuiVisible(efp)) {
+                }
+                lock.lock();
             }
             state.gui_visible = !is_hiding;
             needs_update = true;
