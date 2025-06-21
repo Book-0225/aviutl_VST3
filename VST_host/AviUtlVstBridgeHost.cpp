@@ -293,8 +293,17 @@ tresult PLUGIN_API VstHost::getName(String128 name)
 }
 tresult PLUGIN_API VstHost::createInstance(TUID cid, TUID iid, void **obj)
 {
+    FUnknownPtr<IMessage> message;
+    if (FUnknownPrivate::iidEqual(cid, IMessage::iid))
+    {
+        message = owned(new HostMessage);
+        if (message)
+        {
+            return message->queryInterface(iid, obj);
+        }
+    }
     *obj = nullptr;
-    return kNotImplemented;
+    return kNoInterface;
 }
 bool VstHost::Initialize()
 {
