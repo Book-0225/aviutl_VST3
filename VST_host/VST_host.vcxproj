@@ -148,9 +148,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\common\memorystream.cpp" />
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\module_win32.cpp" />
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\plugprovider.cpp" />
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\common\memorystream.cpp" />
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\module_win32.cpp" />
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\plugprovider.cpp" />
     <ClCompile Include="AviUtlVstBridgeHost.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

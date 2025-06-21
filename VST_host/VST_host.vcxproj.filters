@@ -18,13 +18,13 @@
     <ClCompile Include="AviUtlVstBridgeHost.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\module_win32.cpp">
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\module_win32.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\plugprovider.cpp">
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\common\memorystream.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\common\memorystream.cpp">
+    <ClCompile Include="..\..\..\..\..\..\VST_SDK\VST3_SDK\public.sdk\source\vst\hosting\plugprovider.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>

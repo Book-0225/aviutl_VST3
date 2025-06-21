@@ -48,16 +48,11 @@ using namespace VST3::Hosting;
 #else
 #define DbgPrint(format, ...)
 #endif
-
-
-// --- IPC Definitions ---
 const TCHAR* PIPE_NAME_BASE = TEXT("\\\\.\\pipe\\AviUtlVstBridge");
 const TCHAR* SHARED_MEM_NAME_BASE = TEXT("Local\\AviUtlVstSharedAudio");
 const TCHAR* EVENT_CLIENT_READY_NAME_BASE = TEXT("Local\\AviUtlVstClientReady");
 const TCHAR* EVENT_HOST_DONE_NAME_BASE = TEXT("Local\\AviUtlVstHostDone");
-
 const int MAX_BLOCK_SIZE = 2048;
-
 #pragma pack(push, 1)
 struct AudioSharedData {
     double sampleRate;
@@ -65,17 +60,11 @@ struct AudioSharedData {
     int32_t numChannels;
 };
 #pragma pack(pop)
-
 const int FLOAT_SIZE = sizeof(float);
 const int BUFFER_BYTES = MAX_BLOCK_SIZE * FLOAT_SIZE;
 const int SHARED_MEM_TOTAL_SIZE = sizeof(AudioSharedData) + (4 * BUFFER_BYTES);
-
-
-// --- Global Host State ---
 class VstHost;
 VstHost* g_pVstHost = nullptr;
-
-// --- Base64 Helper Functions ---
 std::string base64_encode(const BYTE* data, DWORD data_len) {
     if (data == nullptr || data_len == 0) return "";
     DWORD b64_len = 0;
@@ -91,7 +80,6 @@ std::string base64_encode(const BYTE* data, DWORD data_len) {
     b64_str.resize(b64_len - 1);
     return b64_str;
 }
-
 std::vector<BYTE> base64_decode(const std::string& b64_str) {
     if (b64_str.empty()) return {};
     DWORD bin_len = 0;
@@ -106,9 +94,6 @@ std::vector<BYTE> base64_decode(const std::string& b64_str) {
     }
     return bin_data;
 }
-
-
-// --- WindowController ---
 class WindowController : public IPlugFrame {
 public:
     WindowController(IPlugView* view, HWND parent) : plugView(view), parentWindow(parent) {}
@@ -140,9 +125,6 @@ private:
     IPlugView* plugView;
     HWND parentWindow;
 };
-
-
-// --- Host Application Context ---
 class MyHostApp : public Steinberg::Vst::HostApplication {
 public:
     tresult PLUGIN_API getName(String128 name) override {
@@ -151,9 +133,6 @@ public:
     }
     static FUnknown* createInstance() { return (IHostApplication*)new MyHostApp; }
 };
-
-
-// --- Main Host Class ---
 class VstHost : public IComponentHandler, public IComponentHandler2 {
 public:
     VstHost(HINSTANCE hInstance, uint64_t unique_id) :
@@ -172,8 +151,6 @@ public:
         DbgPrint(_T("VstHost destructor called for ID %llu."), m_uniqueId);
         Cleanup();
     }
-
-    // --- IUnknownの実装 ---
     tresult PLUGIN_API queryInterface(const TUID _iid, void** obj) override {
         if (FUnknownPrivate::iidEqual(_iid, IComponentHandler::iid)) {
             *obj = static_cast<IComponentHandler*>(this);
@@ -196,8 +173,6 @@ public:
     }
     uint32 PLUGIN_API addRef() override { return 1; }
     uint32 PLUGIN_API release() override { return 1; }
-
-    // --- IComponentHandlerの実装 ---
     tresult PLUGIN_API beginEdit(ParamID id) override {
         return kResultTrue;
     }
@@ -211,8 +186,6 @@ public:
         DbgPrint(_T("IComponentHandler: restartComponent(0x%X) called by plugin."), flags);
         return kResultTrue;
     }
-
-    // --- IComponentHandler2の実装 ---
     tresult PLUGIN_API setDirty(TBool state) override { return kResultOk; }
     tresult PLUGIN_API requestOpenEditor(FIDString name = nullptr) override { ShowGui(); return kResultOk; }
     tresult PLUGIN_API startGroupEdit() override { return kResultOk; }
@@ -500,29 +473,50 @@ private:
     }
 
     void ProcessQueuedCommands() {
+        // =========================================================================
+        // --- 同期コマンド (get_state) の処理 ---
+        // =========================================================================
         {
             std::unique_lock<std::mutex> lock(m_syncMutex);
             if (!m_syncCommand.empty()) {
                 DbgPrint(_T("MainThread: Processing sync command: '%hs'"), m_syncCommand.c_str());
-                if (m_syncCommand == "get_state") {
-                    if (m_controller) {
-                        MemoryStream stream;
-                        tresult result = m_controller->getState(&stream);
 
-                        if (result == kResultOk) {
-                            if (stream.getSize() > 0) {
-                                m_syncResult = "VST3:" + base64_encode((const BYTE*)stream.getData(), (DWORD)stream.getSize());
-                                m_syncSuccess = true;
-                                DbgPrint(_T("MainThread: getState success (Official), size=%lld"), stream.getSize());
+                if (m_syncCommand == "get_state") {
+                    if (m_component && m_controller) {
+                        MemoryStream componentStream;
+                        MemoryStream controllerStream;
+
+                        tresult componentResult = m_component->getState(&componentStream);
+                        tresult controllerResult = m_controller->getState(&controllerStream);
+
+                        int64 componentSize = (componentResult == kResultOk) ? componentStream.getSize() : 0;
+                        int64 controllerSize = (controllerResult == kResultOk) ? controllerStream.getSize() : 0;
+
+                        DbgPrint(_T("MainThread: Component::getState result: 0x%X (Size: %lld), Controller::getState result: 0x%X (Size: %lld)"),
+                            componentResult, componentSize, controllerResult, controllerSize);
+
+                        if (componentSize > 0 || controllerSize > 0) {
+                            MemoryStream finalStream;
+                            int32 bytesWritten = 0;
+
+                            finalStream.write(&componentSize, sizeof(componentSize), &bytesWritten);
+                            if (componentSize > 0) {
+                                componentStream.seek(0, IBStream::kIBSeekSet, nullptr);
+                                finalStream.write(componentStream.getData(), (int32)componentSize, &bytesWritten);
                             }
-                            else {
-                                m_syncResult = "EMPTY";
-                                m_syncSuccess = true;
-                                DbgPrint(_T("MainThread: getState success (Official), but state size is 0."));
+
+                            finalStream.write(&controllerSize, sizeof(controllerSize), &bytesWritten);
+                            if (controllerSize > 0) {
+                                controllerStream.seek(0, IBStream::kIBSeekSet, nullptr);
+                                finalStream.write(controllerStream.getData(), (int32)controllerSize, &bytesWritten);
                             }
+
+                            m_syncResult = "VST3_DUAL:" + base64_encode((const BYTE*)finalStream.getData(), (DWORD)finalStream.getSize());
+                            m_syncSuccess = true;
+                            DbgPrint(_T("MainThread: Combined state saved successfully (VST3_DUAL). Total size: %lld"), finalStream.getSize());
                         }
-                        else if (result == kNotImplemented) {
-                            DbgPrint(_T("MainThread: getState is not implemented. Falling back to manual parameter scraping."));
+                        else {
+                            DbgPrint(_T("MainThread: Both states are empty. Falling back to manual parameter scraping."));
                             std::string manual_state;
                             int32 paramCount = m_controller->getParameterCount();
                             DbgPrint(_T("MainThread: Found %d parameters."), paramCount);
@@ -530,11 +524,7 @@ private:
                             for (int32 i = 0; i < paramCount; ++i) {
                                 ParameterInfo info = {};
                                 if (m_controller->getParameterInfo(i, info) == kResultOk) {
-                                    // 読み取り専用のパラメータ以外はすべて保存する
-                                    if (info.flags & ParameterInfo::kIsReadOnly)
-                                    {
-                                        continue;
-                                    }
+                                    if (info.flags & ParameterInfo::kIsReadOnly) continue;
                                     ParamValue normalizedValue = m_controller->getParamNormalized(info.id);
                                     char buffer[256];
                                     sprintf_s(buffer, "%X=%.17g;", info.id, normalizedValue);
@@ -552,18 +542,11 @@ private:
                                 DbgPrint(_T("MainThread: Manual state scraping resulted in empty state."));
                             }
                         }
-                        else {
-                            m_syncSuccess = false;
-                            char err_code_str[32];
-                            sprintf_s(err_code_str, "0x%X", result);
-                            m_syncResult = err_code_str;
-                            DbgPrint(_T("MainThread: getState FAILED with tresult: %hs"), m_syncResult.c_str());
-                        }
                     }
                     else {
                         m_syncSuccess = false;
-                        m_syncResult = "NoController";
-                        DbgPrint(_T("MainThread: get_state failed, no controller."));
+                        m_syncResult = "NoComponentOrController";
+                        DbgPrint(_T("MainThread: get_state failed, no component or controller."));
                     }
                 }
                 m_syncCommand.clear();
@@ -572,6 +555,9 @@ private:
             }
         }
 
+        // =========================================================================
+        // --- 非同期コマンドの処理 ---
+        // =========================================================================
         std::vector<std::string> commandsToProcess;
         {
             std::lock_guard<std::mutex> lock(m_commandMutex);
@@ -587,6 +573,7 @@ private:
             DbgPrint(_T("MainThread: Processing queued command: '%hs'"), cmd.c_str());
             const std::string loadCmd = "load_plugin ";
             const std::string setStateCmd = "set_state ";
+
             if (cmd.rfind(loadCmd, 0) == 0) {
                 try {
                     std::string args_str = cmd.substr(loadCmd.length());
@@ -613,8 +600,49 @@ private:
             else if (cmd.rfind(setStateCmd, 0) == 0) {
                 if (m_controller && m_component) {
                     std::string full_data = cmd.substr(setStateCmd.length());
-                    if (full_data.rfind("VST3:", 0) == 0) {
-                        DbgPrint(_T("MainThread: Restoring state using official setState."));
+                    int32 bytesRead = 0;
+
+                    if (full_data.rfind("VST3_DUAL:", 0) == 0) {
+                        DbgPrint(_T("MainThread: Restoring state using combined DUAL state."));
+                        std::vector<BYTE> state_data = base64_decode(full_data.substr(10));
+                        if (!state_data.empty()) {
+                            MemoryStream finalStream(state_data.data(), state_data.size());
+                            tresult finalResult = kResultOk;
+
+                            int64 componentSize = 0;
+                            finalStream.read(&componentSize, sizeof(componentSize), &bytesRead);
+                            DbgPrint(_T("MainThread: Reading component state, expected size: %lld"), componentSize);
+                            if (componentSize > 0) {
+                                std::vector<BYTE> componentData(componentSize);
+                                if (finalStream.read(componentData.data(), (int32)componentSize, &bytesRead) == kResultOk && bytesRead == componentSize) {
+                                    MemoryStream componentStream(componentData.data(), componentSize);
+                                    if (m_component->setState(&componentStream) != kResultOk) {
+                                        finalResult = kResultFalse;
+                                        DbgPrint(_T("MainThread: Component setState FAILED."));
+                                    }
+                                }
+                            }
+
+                            int64 controllerSize = 0;
+                            finalStream.read(&controllerSize, sizeof(controllerSize), &bytesRead);
+                            DbgPrint(_T("MainThread: Reading controller state, expected size: %lld"), controllerSize);
+                            if (controllerSize > 0) {
+                                std::vector<BYTE> controllerData(controllerSize);
+                                if (finalStream.read(controllerData.data(), (int32)controllerSize, &bytesRead) == kResultOk && bytesRead == controllerSize) {
+                                    MemoryStream controllerStream(controllerData.data(), controllerSize);
+                                    if (m_controller->setState(&controllerStream) != kResultOk) {
+                                        finalResult = kResultFalse;
+                                        DbgPrint(_T("MainThread: Controller setState FAILED."));
+                                    }
+                                }
+                            }
+
+                            if (finalResult == kResultOk) DbgPrint(_T("MainThread: DUAL setState success."));
+                            else DbgPrint(_T("MainThread: DUAL setState finished with one or more errors."));
+                        }
+                    }
+                    else if (full_data.rfind("VST3:", 0) == 0) {
+                        DbgPrint(_T("MainThread: Restoring state using official setState (legacy controller-only)."));
                         std::vector<BYTE> state_data = base64_decode(full_data.substr(5));
                         if (!state_data.empty()) {
                             MemoryStream stream(state_data.data(), state_data.size());
@@ -646,6 +674,8 @@ private:
                         }
                     }
                     else { DbgPrint(_T("MainThread: setState failed, unknown format.")); }
+                    restartComponent(kParamValuesChanged | kReloadComponent);
+
                 }
                 else { DbgPrint(_T("MainThread: setState failed, no controller or component.")); }
             }
@@ -674,13 +704,11 @@ private:
         }
         if (!found) { DbgPrint(_T("LoadPlugin: Error: No audio effect class found.")); ReleasePlugin(); return false; }
 
-        m_plugProvider = std::make_shared<PlugProvider>(factory, audioProcessorClass, false); // createComponent is false
+        m_plugProvider = std::make_shared<PlugProvider>(factory, audioProcessorClass, false);
         m_component = m_plugProvider->getComponent();
         m_controller = m_plugProvider->getController();
 
         if (!m_component || !m_controller) { DbgPrint(_T("LoadPlugin: Failed to get Cmp/Ctrl.")); ReleasePlugin(); return false; }
-
-        // [FIX] Ambiguity error. Explicitly cast `this` to the base interface pointer.
         FUnknown* context = static_cast<IComponentHandler*>(this);
         if (m_component->initialize(context) != kResultOk) { DbgPrint(_T("LoadPlugin: Failed to initialize component.")); ReleasePlugin(); return false; }
         if (m_controller->initialize(context) != kResultOk) { DbgPrint(_T("LoadPlugin: Failed to initialize controller.")); ReleasePlugin(); return false; }
@@ -704,7 +732,6 @@ private:
         m_isPluginReady = true;
 
         String128 name;
-        // [FIX] Use .c_str() to convert std::string to const char*
         Steinberg::str8ToStr16(name, audioProcessorClass.name().c_str(), 128);
         DbgPrint(_T("LoadPlugin: Plugin loaded and setup: %s. Ready for processing."), name);
         return true;
@@ -719,7 +746,7 @@ private:
         if (m_component) m_component->setActive(false);
 
         if (m_controller) {
-            m_controller->setComponentHandler(nullptr); // Clean up handler
+            m_controller->setComponentHandler(nullptr);
             m_controller->terminate();
         }
         if (m_component) m_component->terminate();

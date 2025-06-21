@@ -45,7 +45,7 @@ struct AudioSharedData {
 };
 struct Exdata {
     TCHAR vst_path[MAX_PATH];
-    char state_b64[STATE_B64_MAX_LEN]; // VSTプラグインの状態をBase64で保存
+    char state_b64[STATE_B64_MAX_LEN];
 };
 #pragma pack(pop)
 const int SHARED_MEM_TOTAL_SIZE = sizeof(AudioSharedData) + (4 * MAX_BLOCK_SIZE * sizeof(float));
@@ -116,6 +116,40 @@ inline constinit auto effect = filter_template(ExEdit::Filter::Flag::Audio | ExE
 // =================================================================
 // フィルター関数実装
 // =================================================================
+BOOL SaveStateIfGuiVisible(ExEdit::Filter* efp) {
+    uint32_t object_id = static_cast<uint32_t>(efp->processing);
+    auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
+
+    std::lock_guard<std::mutex> lock(g_states_mutex);
+    auto it = g_host_states.find(object_id);
+    if (it == g_host_states.end() || !it->second->host_running || !it->second->gui_visible) {
+        return FALSE;
+    }
+
+    auto& state = *it->second;
+    DbgPrint(_T("Saving state for object %u because GUI is open."), object_id);
+    std::vector<char> state_response(STATE_B64_MAX_LEN + 100);
+    if (SendCommandToHost(state, "get_state\n", state_response.data(), (DWORD)state_response.size())) {
+        if (strncmp(state_response.data(), "OK ", 3) == 0) {
+            efp->exfunc->set_undo(efp->processing, 0);
+            char* state_ptr = state_response.data() + 3;
+            size_t len = strlen(state_ptr);
+            if (len > 0 && state_ptr[len - 1] == '\n') {
+                state_ptr[len - 1] = '\0';
+            }
+            strncpy_s(exdata->state_b64, sizeof(exdata->state_b64), state_ptr, _TRUNCATE);
+            DbgPrint(_T("State saved for object %u. Length: %zu"), object_id, strlen(exdata->state_b64));
+            return TRUE;
+        }
+        else {
+            DbgPrint(_T("Failed to get state: %hs"), state_response.data());
+        }
+    }
+    else {
+        DbgPrint(_T("SendCommandToHost for get_state failed for object %u."), object_id);
+    }
+    return FALSE;
+}
 BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
@@ -180,7 +214,7 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
             DbgPrint(_T("Host processing timed out/failed (result: %lu). Bypassing."), waitResult);
             if (waitResult != WAIT_TIMEOUT) {
                 DbgPrint(_T("Host process likely terminated. Cleaning up."));
-                g_host_states.erase(object_id); return TRUE; // Stop processing further blocks
+                g_host_states.erase(object_id); return TRUE;
             }
             memcpy(audio_out + samples_processed * efpip->audio_ch, audio_in + samples_processed * efpip->audio_ch, samples_to_process * efpip->audio_ch * sizeof(short));
         }
@@ -191,17 +225,20 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
 BOOL func_init(ExEdit::Filter* efp) { return TRUE; }
 BOOL func_exit(ExEdit::Filter* efp) { DbgPrint(_T("Filter exiting. Cleaning up all host processes.")); std::lock_guard<std::mutex> lock(g_states_mutex); g_host_states.clear(); return TRUE; }
 
-// ... func_proc は変更なし ...
-// ... func_init, func_exit は変更なし ...
-
 BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl::EditHandle* editp, ExEdit::Filter* efp) {
+    if (message == AviUtl::FilterPlugin::WindowMessage::SaveStart) {
+        DbgPrint(_T("WM_EXTENDEDFILTER_SAVE_START received. Checking if state needs to be saved."));
+        SaveStateIfGuiVisible(efp);
+        return TRUE;
+    }
+
     if (message != ExEdit::ExtendedFilter::Message::WM_EXTENDEDFILTER_COMMAND) return FALSE;
 
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
     if (LOWORD(wparam) != ExEdit::ExtendedFilter::CommandId::EXTENDEDFILTER_PUSH_BUTTON) return FALSE;
 
-    bool needs_update = false; // 更新が必要かどうかのフラグ
+    bool needs_update = false;
 
     switch (HIWORD(wparam)) {
     case idx_check::select_vst: {
@@ -218,18 +255,18 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
             efp->exfunc->set_undo(efp->processing, 0);
             {
                 std::lock_guard<std::mutex> lock(g_states_mutex);
-                g_host_states.erase(object_id); // Erase old host instance
+                g_host_states.erase(object_id);
             }
             _tcscpy_s(exdata->vst_path, MAX_PATH, szFile);
-            exdata->state_b64[0] = '\0'; // Clear previous state on new plugin selection
-            needs_update = true; // 更新フラグを立てる
+            exdata->state_b64[0] = '\0';
+            needs_update = true;
         }
         else {
             if (CommDlgExtendedError() != 0) {
                 DbgPrint(_T("GetOpenFileName failed."));
             }
         }
-        break; // breakを追加
+        break;
     }
     case idx_check::toggle_gui: {
         DbgPrint(_T("Button 'toggle_gui' clicked."));
@@ -241,39 +278,25 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
             MessageBox(efp->exedit_fp->hwnd, _T("ホストが起動していません。\n編集中に一度再生すると起動します。"), _T("情報"), MB_OK | MB_ICONINFORMATION);
             return TRUE;
         }
+
         auto& state = *it->second;
         bool is_hiding = state.gui_visible;
         const char* cmd_str = is_hiding ? "hide_gui\n" : "show_gui\n";
         char response[256];
 
         if (SendCommandToHost(state, cmd_str, response, sizeof(response))) {
-            state.gui_visible = !is_hiding;
-            // If we just hid the GUI, save the state
             if (is_hiding) {
                 DbgPrint(_T("GUI hidden. Getting state to save."));
-                // Response buffer needs to be large enough for the b64 state + "OK " prefix
-                std::vector<char> state_response(STATE_B64_MAX_LEN + 100);
-                if (SendCommandToHost(state, "get_state\n", state_response.data(), (DWORD)state_response.size())) {
-                    if (strncmp(state_response.data(), "OK ", 3) == 0) {
-                        efp->exfunc->set_undo(efp->processing, 0);
-                        char* state_ptr = state_response.data() + 3;
-                        // Remove trailing newline
-                        size_t len = strlen(state_ptr);
-                        if (len > 0 && state_ptr[len - 1] == '\n') state_ptr[len - 1] = '\0';
-                        strncpy_s(exdata->state_b64, sizeof(exdata->state_b64), state_ptr, _TRUNCATE);
-                        DbgPrint(_T("State saved for object %u. Length: %zu"), object_id, strlen(exdata->state_b64));
-                    }
-                    else {
-                        DbgPrint(_T("Failed to get state: %hs"), state_response.data());
-                    }
-                }
+                lock.unlock();
+                SaveStateIfGuiVisible(efp);
             }
-            needs_update = true; // 更新フラグを立てる
+            state.gui_visible = !is_hiding;
+            needs_update = true;
         }
         else {
             MessageBox(efp->exedit_fp->hwnd, _T("GUIコマンドの送信に失敗しました。"), _T("エラー"), MB_OK | MB_ICONERROR);
         }
-        break; // breakを追加
+        break;
     }
     }
 
@@ -282,10 +305,9 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
         efp->exedit_fp->exfunc->filter_window_update(efp->exedit_fp);
     }
 
-    return TRUE; // イベントを処理したのでTRUEを返す
+    return TRUE;
 }
 int32_t func_window_init(HINSTANCE, HWND hwnd, int, int, int sw_param, ExEdit::Filter* efp) {
-    if (sw_param == 0) return 0; // Skip if dialog is just being created for the first time
 
     DbgPrint(_T("func_window_init called for update."));
 
@@ -298,14 +320,11 @@ int32_t func_window_init(HINSTANCE, HWND hwnd, int, int, int sw_param, ExEdit::F
             _tcscpy_s(display_path, _T("（VST3プラグイン未選択）"));
         }
         else {
-            // ファイル名だけを表示する
             const TCHAR* filename = _tcsrchr(exdata->vst_path, _T('\\'));
             _tcscpy_s(display_path, filename ? filename + 1 : exdata->vst_path);
         }
         SetWindowText(hStaticPath, display_path);
     }
-
-    // GUI表示ボタンのテキストを更新
     bool gui_is_visible = false;
     {
         std::lock_guard<std::mutex> lock(g_states_mutex);
@@ -313,7 +332,6 @@ int32_t func_window_init(HINSTANCE, HWND hwnd, int, int, int sw_param, ExEdit::F
             gui_is_visible = g_host_states.at(object_id)->gui_visible;
         }
     }
-    // ボタンのtrack_idxは4
     HWND hBtnGui = efp->exfunc->get_hwnd(efp->processing, 4, idx_check::toggle_gui);
     if (hBtnGui) {
         SetWindowTextA(hBtnGui, gui_is_visible ? "プラグインGUIを非表示" : "プラグインGUIを表示");
@@ -324,7 +342,7 @@ int32_t func_window_init(HINSTANCE, HWND hwnd, int, int, int sw_param, ExEdit::F
 bool ConnectIPC(HostState& state) {
     TCHAR name[MAX_PATH];
     _stprintf_s(name, _T("%s_%llu"), PIPE_NAME_BASE, state.unique_id);
-    for (int i = 0; i < 50; ++i) { // Retry for 5 seconds
+    for (int i = 0; i < 50; ++i) {
         state.hPipe = CreateFile(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
         if (state.hPipe != INVALID_HANDLE_VALUE) break;
         if (GetLastError() == ERROR_PIPE_BUSY) WaitNamedPipe(name, 1000);
@@ -370,19 +388,16 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
 #endif
     char cmd_buffer[1024];
     char response[256];
-    // 1. Load plugin
     sprintf_s(cmd_buffer, "load_plugin \"%s\" %f %d\n", vst_path_mb, (double)efpip->audio_rate, MAX_BLOCK_SIZE);
     if (!SendCommandToHost(state, cmd_buffer, response, sizeof(response)) || strncmp(response, "OK", 2) != 0) {
         DbgPrint(_T("Failed to load plugin. Response: %hs"), response); return false;
     }
-    // 2. Restore state if available
     if (strlen(exdata->state_b64) > 0) {
         DbgPrint(_T("Restoring saved state..."));
-        // Need a larger buffer for set_state command
         std::vector<char> set_cmd(strlen(exdata->state_b64) + 32);
         sprintf_s(set_cmd.data(), set_cmd.size(), "set_state %s\n", exdata->state_b64);
         if (!SendCommandToHost(state, set_cmd.data(), response, sizeof(response)) || strncmp(response, "OK", 2) != 0) {
-            DbgPrint(_T("Failed to restore state. Response: %hs"), response); // Continue anyway
+            DbgPrint(_T("Failed to restore state. Response: %hs"), response);
         }
         else { DbgPrint(_T("State restored successfully.")); }
     }
