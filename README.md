@@ -25,7 +25,8 @@ AviUtl の拡張編集に「VST3 Host」フィルタ効果とフィルタオブ�
 ## 導入方法
 
 `aviutl.exe` と同階層にある `plugins` フォルダ内に `VST3.eef` ファイルを入れてください。
-また、`VSTHost.exe`を`aviutl.exe`と同階層に入れてください。
+VisualStudio 2022を用いてソースコードのVST_host内のVST_host.slnを開きAviUtlVstBridgeHost.cpp以外のソースファイルを自分でダウンロードしたVST3 SDKで置き換えてRelease|x64でビルドしてください
+ビルドされた`VSTHost.exe`を`aviutl.exe`と同階層に入れてください。
 
 ## 使い方
 
