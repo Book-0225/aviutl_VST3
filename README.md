@@ -31,6 +31,8 @@ AviUtl の拡張編集に「VST3 Host」フィルタ効果とフィルタオブ�
   `public.sdk\source\vst\hosting\module_win32.cpp`  
   `public.sdk\source\common\memorystream.cpp`  
   `public.sdk\source\vst\hosting\plugprovider.cpp`  
+  インクルードディレクトリなどは`C:\VST_SDK\VST3_SDK`と`C:\VST_SDK\build`に配置することを前提としています  
+  それ以外のディレクトリにVST3 SDKを配置した際はインクルードディレクトリとライブラリディレクトリも置き換えてください。  
   ビルドされた`VSTHost.exe`を`aviutl.exe`と同階層に入れてください。
 
 ## 使い方
