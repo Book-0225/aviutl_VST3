@@ -44,6 +44,12 @@ VST3プラグインを選択を押して64bitの.vst3ファイルを選択しま
 - v0.0.1
   初版
 
+## License
+- AviUtlプラグイン側
+  MIT
+- VST host 側
+  Open-source GPLv3 license
+
 # Credits
 
 ## aviutl_exedit_sdk
