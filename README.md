@@ -46,7 +46,6 @@ VST3プラグインを選択を押して64bitの.vst3ファイルを選択しま
 
 ## License
   GNU General Public License v3
-  ![VST logo](https://steinbergmedia.github.io/vst3_dev_portal/resources/licensing_3.png)
 
 # Credits
 
