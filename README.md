@@ -23,21 +23,25 @@ AviUtl の拡張編集に「VST3 Host」フィルタ効果とフィルタオブ�
   https://github.com/nazonoSAUNA/patch.aul/releases/latest
 
 ## 導入方法
-
-`aviutl.exe` と同階層にある `plugins` フォルダ内に `VST3.eef` ファイルを入れてください。
-VisualStudio 2022を用いてソースコードのVST_host内のVST_host.slnを開きAviUtlVstBridgeHost.cpp以外のソースファイルを自分でダウンロードしたVST3 SDKで置き換えてRelease|x64でビルドしてください
-ビルドされた`VSTHost.exe`を`aviutl.exe`と同階層に入れてください。
+- VST3.eef  
+  `aviutl.exe` と同階層にある `plugins` フォルダ内に `VST3.eef` ファイルを入れてください。
+- VSTHost.exe  
+  [VisualStudio 2022](https://visualstudio.microsoft.com/ja/)を用いてソースコードのVST_host内のVST_host.slnを開きます  
+  AviUtlVstBridgeHost.cpp以外の下記3つのソースファイルを[Steinberg](https://www.steinberg.net/ja/developers/)よりダウンロードしたVST3 SDKで置き換えてRelease|x64でビルドしてください  
+  `public.sdk\source\vst\hosting\module_win32.cpp`  
+  `public.sdk\source\common\memorystream.cpp`  
+  `public.sdk\source\vst\hosting\plugprovider.cpp`  
+  ビルドされた`VSTHost.exe`を`aviutl.exe`と同階層に入れてください。
 
 ## 使い方
-
-拡張編集から`VST3 Host`というフィルタオブジェクトを追加します。
-VST3プラグインを選択を押して64bitの.vst3ファイルを選択します。
-一度フィルタを適用した部分のプレビューを出します。
-※プレビューを出さないとエラーになります。
-　また、読み込み処理には時間がかかるので次の手順に行く前に少し待ってください。(10秒ほど)
-プラグインGUIを表示を押します。
-プラグインを操作して設定し終わったらGUIを非表示にします。
-※重要 非表示にする手順を行わないと保存されません。
+拡張編集から`VST3 Host`というフィルタオブジェクトを追加します。  
+VST3プラグインを選択を押して64bitの.vst3ファイルを選択します。  
+一度フィルタを適用した部分のプレビューを出します。  
+※プレビューを出さないとエラーになります。  
+また、読み込み処理には時間がかかるので次の手順に行く前に少し待ってください。(10秒ほど)  
+プラグインGUIを表示を押します。  
+プラグインを操作して設定し終わったらGUIを非表示にします。  
+※重要 非表示にする手順を行わないと保存されません。  
 これで適用されているはずです。
 
 ## 改版履歴
