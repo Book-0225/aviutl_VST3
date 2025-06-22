@@ -49,6 +49,7 @@ VST3プラグインを選択を押して64bitの.vst3ファイルを選択しま
   MIT
 - VST host 側
   Open-source GPLv3 license
+  ![VST logo](https://steinbergmedia.github.io/vst3_dev_portal/resources/licensing_3.png)
 
 # Credits
 
