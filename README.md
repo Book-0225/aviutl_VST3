@@ -46,7 +46,7 @@ VST3プラグインを選択を押して64bitの.vst3ファイルを選択しま
   初版
 
 ## License
-  GNU General Public License v3
+  MIT License
 
 # Credits
 

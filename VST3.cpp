@@ -123,7 +123,7 @@ inline constinit auto filter = filter_template(ExEdit::Filter::Flag::Audio);
 inline constinit auto effect = filter_template(ExEdit::Filter::Flag::Audio | ExEdit::Filter::Flag::Effect | ExEdit::Filter::Flag::Unaddable);
 
 // =================================================================
-// フィルター関数実装 (変更なし)
+// フィルター関数実装
 // =================================================================
 BOOL SaveStateIfGuiVisible(ExEdit::Filter* efp) {
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
@@ -381,9 +381,19 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
     *(last_slash + 1) = _T('\0');
     _tcscat_s(host_path, MAX_PATH, _T("VstHost.exe"));
     DbgPrint(_T("Attempting to launch host from: %s"), host_path);
+    TCHAR cmd_line[MAX_PATH * 4];
+    _stprintf_s(cmd_line,
+        _T("\"%s\" -uid %llu -pipe \"%s\" -shm \"%s\" -event_ready \"%s\" -event_done \"%s\""),
+        host_path,
+        state.unique_id,
+        PIPE_NAME_BASE,
+        SHARED_MEM_NAME_BASE,
+        EVENT_CLIENT_READY_NAME_BASE,
+        EVENT_HOST_DONE_NAME_BASE
+    );
 
-    TCHAR cmd_line[MAX_PATH * 2];
-    _stprintf_s(cmd_line, _T("\"%s\" %llu"), host_path, state.unique_id);
+    DbgPrint(_T("Launching host with command line: %s"), cmd_line);
+
     STARTUPINFO si = { sizeof(si) };
     if (!CreateProcess(NULL, cmd_line, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &state.pi)) {
         DbgPrint(_T("CreateProcess failed: %lu."), GetLastError()); return false;
