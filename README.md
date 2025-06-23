@@ -26,8 +26,7 @@ AviUtl の拡張編集に「VST3 Host」フィルタ効果とフィルタオブ�
 - VST3.eef  
   `aviutl.exe` と同階層にある `plugins` フォルダ内に `VST3.eef` ファイルを入れてください。
 - VSTHost.exe  
-  公開停止中です
-  近日中に別リポジトリで再公開します
+  [VST_host](https://github.com/Book-0225/VST_host)のリリースよりダウンロードしてください。
 
 ## 使い方
 拡張編集から`VST3 Host`というフィルタオブジェクトを追加します。  
