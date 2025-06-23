@@ -100,7 +100,7 @@ std::unordered_map<uint32_t, std::unique_ptr<HostState>> g_host_states;
 // =================================================================
 // 拡張編集プラグイン定義
 // =================================================================
-#define PLUGIN_VERSION "v0.0.1"
+#define PLUGIN_VERSION "v0.0.2"
 #define PLUGIN_AUTHOR "BOOK25"
 #define FILTER_NAME "VST3 Host"
 #define FILTER_INFO_FMT(name, ver, author) (name " " ver " by " author)
