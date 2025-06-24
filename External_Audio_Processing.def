@@ -1,0 +1,3 @@
+LIBRARY "External_Audio_Processing"
+EXPORTS
+    GetFilterTableList

@@ -17,7 +17,7 @@ using byte = int8_t;
 #ifdef _DEBUG
 #define DbgPrint(format, ...) do { \
     TCHAR buffer[512]; \
-    _stprintf_s(buffer, _T("[VstPlugin][%hs:%d] ") _T(format) _T("\n"), __FUNCTION__, __LINE__, ##__VA_ARGS__); \
+    _stprintf_s(buffer, _T("[AudioPluginHost][%hs:%d] ") _T(format) _T("\n"), __FUNCTION__, __LINE__, ##__VA_ARGS__); \
     OutputDebugString(buffer); \
 } while(0)
 #else
@@ -44,7 +44,7 @@ struct AudioSharedData {
     int32_t numChannels;
 };
 struct Exdata {
-    TCHAR vst_path[MAX_PATH];
+    TCHAR plugin_path[MAX_PATH];
     char state_b64[STATE_B64_MAX_LEN];
 };
 #pragma pack(pop)
@@ -55,7 +55,7 @@ bool SendCommandToHost(HostState& state, const char* command, char* response, DW
 
 class HostState {
 public:
-    TCHAR loaded_vst_path[MAX_PATH] = { 0 };
+    TCHAR loaded_plugin_path[MAX_PATH] = { 0 };
     uint64_t unique_id = 0;
     std::atomic<bool> host_running = false;
     std::atomic<bool> gui_visible = false;
@@ -101,14 +101,14 @@ std::unordered_map<uint32_t, std::unique_ptr<HostState>> g_host_states;
 // =================================================================
 // 拡張編集プラグイン定義
 // =================================================================
-#define PLUGIN_VERSION "v0.0.3"
+#define PLUGIN_VERSION "v0.1.0"
 #define PLUGIN_AUTHOR "BOOK25"
-#define FILTER_NAME "VST3 Host"
+#define FILTER_NAME "Audio Plugin Host"
 #define FILTER_INFO_FMT(name, ver, author) (name " " ver " by " author)
 constexpr char filter_name[] = FILTER_NAME;
 constexpr char info[] = FILTER_INFO_FMT(FILTER_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR);
-namespace idx_check { enum id : int { select_vst, toggle_gui, count }; }
-const char* check_names[] = { "VST3プラグインを選択", "プラグインGUIを表示" };
+namespace idx_check { enum id : int { select_plugin, toggle_gui, count }; }
+const char* check_names[] = { "プラグインを選択", "プラグインGUIを表示" };
 const int32_t check_default[] = { -1, -1 };
 const Exdata exdata_def = { _T(""), "" };
 BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip);
@@ -164,10 +164,10 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
 
-    if (_tcslen(exdata->vst_path) == 0 || efpip->audio_n == 0) {
+    if (_tcslen(exdata->plugin_path) == 0 || efpip->audio_n == 0) {
         std::lock_guard<std::mutex> lock(g_states_mutex);
         if (g_host_states.count(object_id)) {
-            DbgPrint(_T("VST path is empty, cleaning up leftover host for object %u."), object_id);
+            DbgPrint(_T("Plugin path is empty, cleaning up leftover host for object %u."), object_id);
             g_host_states.erase(object_id);
         }
         return TRUE;
@@ -176,9 +176,9 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
     std::lock_guard<std::mutex> lock(g_states_mutex);
     auto it = g_host_states.find(object_id);
     if (it != g_host_states.end()) {
-        if (_tcscmp(it->second->loaded_vst_path, exdata->vst_path) != 0) {
-            DbgPrint(_T("VST path mismatch for object %u. Old: '%s', New: '%s'. Re-launching host."),
-                object_id, it->second->loaded_vst_path, exdata->vst_path);
+        if (_tcscmp(it->second->loaded_plugin_path, exdata->plugin_path) != 0) {
+            DbgPrint(_T("Plugin path mismatch for object %u. Old: '%s', New: '%s'. Re-launching host."),
+                object_id, it->second->loaded_plugin_path, exdata->plugin_path);
             g_host_states.erase(it);
         }
     }
@@ -188,7 +188,7 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
     auto& state = *g_host_states[object_id];
 
     if (!state.host_running) {
-        _tcscpy_s(state.loaded_vst_path, MAX_PATH, exdata->vst_path);
+        _tcscpy_s(state.loaded_plugin_path, MAX_PATH, exdata->plugin_path);
         if (!LaunchHostProcess(efp, efpip, state)) {
             DbgPrint(_T("func_proc: Host launch failed for obj %u. Bypassing."), object_id);
             g_host_states.erase(object_id);
@@ -252,7 +252,6 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
 }
 BOOL func_init(ExEdit::Filter* efp) { return TRUE; }
 BOOL func_exit(ExEdit::Filter* efp) { DbgPrint(_T("Filter exiting. Cleaning up all host processes.")); std::lock_guard<std::mutex> lock(g_states_mutex); g_host_states.clear(); return TRUE; }
-
 BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl::EditHandle* editp, ExEdit::Filter* efp) {
     if (message == AviUtl::FilterPlugin::WindowMessage::SaveStart) {
         DbgPrint(_T("WM_EXTENDEDFILTER_SAVE_START received. Checking if state needs to be saved."));
@@ -269,14 +268,70 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
     bool needs_update = false;
 
     switch (HIWORD(wparam)) {
-    case idx_check::select_vst: {
-        DbgPrint(_T("Button 'select_vst' clicked."));
+    case idx_check::select_plugin: {
+        DbgPrint(_T("Button 'select_plugin' clicked."));
+        TCHAR aviutl_dir[MAX_PATH];
+        GetModuleFileName(NULL, aviutl_dir, MAX_PATH);
+        TCHAR* last_slash = _tcsrchr(aviutl_dir, _T('\\'));
+        if (!last_slash) break;
+        *(last_slash + 1) = _T('\0');
+
+        TCHAR ini_path[MAX_PATH];
+        _stprintf_s(ini_path, _T("%s%s\\%s"), aviutl_dir, _T("audio_exe"), _T("audio_plugin_link.ini"));
+
+        TCHAR final_filter[2048] = { 0 };
+        TCHAR* p = final_filter;
+        const TCHAR* p_end = final_filter + (sizeof(final_filter) / sizeof(TCHAR)) - 2;
+
+        TCHAR combined_exts[512] = { 0 };
+
+        if (GetFileAttributes(ini_path) != INVALID_FILE_ATTRIBUTES) {
+            TCHAR all_keys[2048];
+            DWORD bytes_read = GetPrivateProfileString(_T("Mappings"), NULL, _T(""), all_keys, sizeof(all_keys) / sizeof(TCHAR), ini_path);
+
+            if (bytes_read > 0) {
+                const TCHAR* current_key = all_keys;
+                while (*current_key) {
+                    if (_tcslen(combined_exts) > 0) {
+                        _tcscat_s(combined_exts, _T(";"));
+                    }
+                    _tcscat_s(combined_exts, _T("*"));
+                    _tcscat_s(combined_exts, current_key);
+                    current_key += _tcslen(current_key) + 1;
+                }
+                int len = _stprintf_s(p, p_end - p, _T("Audio Plugins (%s)"), combined_exts);
+                p += len + 1;
+                len = _stprintf_s(p, p_end - p, _T("%s"), combined_exts);
+                p += len + 1;
+                current_key = all_keys;
+                while (*current_key) {
+                    TCHAR ext_upper[32];
+                    _tcscpy_s(ext_upper, current_key + 1);
+                    _tcsupr_s(ext_upper);
+                    len = _stprintf_s(p, p_end - p, _T("%s Plugins (*%s)"), ext_upper, current_key);
+                    p += len + 1;
+                    len = _stprintf_s(p, p_end - p, _T("*%s"), current_key);
+                    p += len + 1;
+
+                    current_key += _tcslen(current_key) + 1;
+                }
+            }
+        }
+        int len = _stprintf_s(p, p_end - p, _T("All Files (*.*)"));
+        p += len + 1;
+        len = _stprintf_s(p, p_end - p, _T("*.*"));
+        p += len + 1;
+
+        *p = _T('\0');
         TCHAR szFile[MAX_PATH] = { 0 };
         OPENFILENAME ofn = { 0 };
-        ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = efp->exedit_fp->hwnd;
-        ofn.lpstrFile = szFile; ofn.nMaxFile = sizeof(szFile) / sizeof(TCHAR);
-        ofn.lpstrFilter = _T("VST3 Plugin (*.vst3)\0*.vst3\0All Files (*.*)\0*.*\0");
-        ofn.nFilterIndex = 1; ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = efp->exedit_fp->hwnd;
+        ofn.lpstrFile = szFile;
+        ofn.nMaxFile = sizeof(szFile) / sizeof(TCHAR);
+        ofn.lpstrFilter = final_filter;
+        ofn.nFilterIndex = 1;
+        ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
         if (GetOpenFileName(&ofn)) {
             DbgPrint(_T("File selected: %s"), szFile);
@@ -285,13 +340,16 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
                 std::lock_guard<std::mutex> lock(g_states_mutex);
                 g_host_states.erase(object_id);
             }
-            _tcscpy_s(exdata->vst_path, MAX_PATH, szFile);
+            _tcscpy_s(exdata->plugin_path, MAX_PATH, szFile);
             exdata->state_b64[0] = '\0';
             needs_update = true;
         }
         else {
             if (CommDlgExtendedError() != 0) {
-                DbgPrint(_T("GetOpenFileName failed."));
+                DbgPrint(_T("GetOpenFileName failed with error: %ld"), CommDlgExtendedError());
+            }
+            else {
+                DbgPrint(_T("GetOpenFileName cancelled by user."));
             }
         }
         break;
@@ -342,15 +400,15 @@ int32_t func_window_init(HINSTANCE, HWND hwnd, int, int, int sw_param, ExEdit::F
 
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
-    HWND hStaticPath = efp->exfunc->get_hwnd(efp->processing, 5, idx_check::select_vst);
+    HWND hStaticPath = efp->exfunc->get_hwnd(efp->processing, 5, idx_check::select_plugin);
     if (hStaticPath) {
         TCHAR display_path[MAX_PATH];
-        if (_tcslen(exdata->vst_path) == 0) {
-            _tcscpy_s(display_path, _T("（VST3プラグイン未選択）"));
+        if (_tcslen(exdata->plugin_path) == 0) {
+            _tcscpy_s(display_path, _T("（プラグイン未選択）"));
         }
         else {
-            const TCHAR* filename = _tcsrchr(exdata->vst_path, _T('\\'));
-            _tcscpy_s(display_path, filename ? filename + 1 : exdata->vst_path);
+            const TCHAR* filename = _tcsrchr(exdata->plugin_path, _T('\\'));
+            _tcscpy_s(display_path, filename ? filename + 1 : exdata->plugin_path);
         }
         SetWindowText(hStaticPath, display_path);
     }
@@ -392,12 +450,53 @@ bool ConnectIPC(HostState& state) {
 }
 bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostState& state) {
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
-    TCHAR host_path[MAX_PATH];
-    GetModuleFileName(efp->exedit_fp->dll_hinst, host_path, MAX_PATH);
-    TCHAR* last_slash = _tcsrchr(host_path, _T('\\'));
+    TCHAR msg[MAX_PATH + 256];
+    const TCHAR* extension = _tcsrchr(exdata->plugin_path, _T('.'));
+    if (!extension) {
+        _stprintf_s(msg, _T("プラグインパスに拡張子が含まれていません。\nパス: %s"), exdata->plugin_path);
+        MessageBox(efp->exedit_fp->hwnd, msg, _T("設定エラー"), MB_OK | MB_ICONERROR);
+        return false;
+    }
+    TCHAR aviutl_dir[MAX_PATH];
+    GetModuleFileName(NULL, aviutl_dir, MAX_PATH);
+    TCHAR* last_slash = _tcsrchr(aviutl_dir, _T('\\'));
     if (!last_slash) return false;
     *(last_slash + 1) = _T('\0');
-    _tcscat_s(host_path, MAX_PATH, _T("VstHost.exe"));
+
+    TCHAR audio_exe_dir[MAX_PATH];
+    _stprintf_s(audio_exe_dir, _T("%s%s"), aviutl_dir, _T("audio_exe"));
+
+    TCHAR ini_path[MAX_PATH];
+    _stprintf_s(ini_path, _T("%s\\%s"), audio_exe_dir, _T("audio_plugin_link.ini"));
+    if (GetFileAttributes(ini_path) == INVALID_FILE_ATTRIBUTES) {
+        _stprintf_s(msg, _T("設定ファイルが見つかりません。\nパス: %s"), ini_path);
+        MessageBox(efp->exedit_fp->hwnd, msg, _T("設定エラー"), MB_OK | MB_ICONERROR);
+        return false;
+    }
+
+    TCHAR host_exe_name[MAX_PATH];
+    GetPrivateProfileString(
+        _T("Mappings"),
+        extension,
+        _T(""),
+        host_exe_name,
+        MAX_PATH,
+        ini_path);
+
+    if (_tcslen(host_exe_name) == 0) {
+        _stprintf_s(msg, _T("設定ファイルに拡張子 '%s' の定義がありません。\n\n%s の [Mappings] セクションに\n%s=ホスト名.exe\nのように追記してください。"),
+            extension, ini_path, extension);
+        MessageBox(efp->exedit_fp->hwnd, msg, _T("設定エラー"), MB_OK | MB_ICONERROR);
+        return false;
+    }
+    TCHAR host_path[MAX_PATH];
+    _stprintf_s(host_path, _T("%s\\%s"), audio_exe_dir, host_exe_name);
+
+    if (GetFileAttributes(host_path) == INVALID_FILE_ATTRIBUTES) {
+        _stprintf_s(msg, _T("INIファイルで指定されたホストプログラムが見つかりません。\nパス: %s"), host_path);
+        MessageBox(efp->exedit_fp->hwnd, msg, _T("起動エラー"), MB_OK | MB_ICONERROR);
+        return false;
+    }
     DbgPrint(_T("Attempting to launch host from: %s"), host_path);
     TCHAR cmd_line[MAX_PATH * 4];
     _stprintf_s(cmd_line,
@@ -419,11 +518,11 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
     state.host_running = true;
     if (!ConnectIPC(state)) { DbgPrint(_T("ConnectIPC failed.")); return false; }
 
-    char vst_path_mb[MAX_PATH];
+    char plugin_path_mb[MAX_PATH];
 #ifdef UNICODE
-    WideCharToMultiByte(CP_UTF8, 0, exdata->vst_path, -1, vst_path_mb, MAX_PATH, NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, exdata->plugin_path, -1, plugin_path_mb, MAX_PATH, NULL, NULL);
 #else
-    strcpy_s(vst_path_mb, MAX_PATH, exdata->vst_path);
+    strcpy_s(plugin_path_mb, MAX_PATH, exdata->plugin_path);
 #endif
 
     std::vector<char> cmd_buffer;
@@ -434,7 +533,7 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
         size_t state_len = strlen(exdata->state_b64);
         cmd_buffer.resize(state_len + 1024);
         sprintf_s(cmd_buffer.data(), cmd_buffer.size(), "load_and_set_state \"%s\" %f %d %s\n",
-            vst_path_mb,
+            plugin_path_mb,
             (double)efpip->audio_rate,
             MAX_BLOCK_SIZE,
             exdata->state_b64);
@@ -443,7 +542,7 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
         DbgPrint(_T("Preparing to load plugin..."));
         cmd_buffer.resize(1024);
         sprintf_s(cmd_buffer.data(), cmd_buffer.size(), "load_plugin \"%s\" %f %d\n",
-            vst_path_mb,
+            plugin_path_mb,
             (double)efpip->audio_rate,
             MAX_BLOCK_SIZE);
     }
@@ -460,7 +559,6 @@ bool SendCommandToHost(HostState& state, const char* command, char* response, DW
     DWORD bytesWritten;
     if (!WriteFile(state.hPipe, command, (DWORD)strlen(command), &bytesWritten, NULL)) return false;
     DWORD bytesRead;
-    // 応答を待つタイムアウトを追加
     if (!ReadFile(state.hPipe, response, responseSize - 1, &bytesRead, NULL)) {
         DbgPrint(_T("ReadFile from pipe failed. Error: %lu"), GetLastError());
         return false;

@@ -16,7 +16,7 @@
     <ProjectGuid>{d1512a43-5731-46d8-a1b9-34a94e606e82}</ProjectGuid>
     <RootNamespace>AudioDecay</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>VST3</ProjectName>
+    <ProjectName>External_Audio_Processing</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -48,12 +48,13 @@
     <IntDir>$(SolutionDir)$(Configuration)\intermed\</IntDir>
     <TargetExt>.eef</TargetExt>
     <GenerateManifest>false</GenerateManifest>
-    <IncludePath>C:\Users\honma\source\repos\aviutl_VST3\sdk;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)\sdk;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <IntDir>$(SolutionDir)$(Configuration)\intermed\</IntDir>
     <TargetExt>.eef</TargetExt>
     <GenerateManifest>false</GenerateManifest>
+    <IncludePath>$(SolutionDir)\sdk;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -71,7 +72,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>VST3.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>External_Audio_Processing.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -96,16 +97,16 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>VST3.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>External_Audio_Processing.def</ModuleDefinitionFile>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalDependencies>Shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="VST3.cpp" />
+    <ClCompile Include="External_Audio_Processing.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="VST3.def" />
+    <None Include="External_Audio_Processing.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
