@@ -27,7 +27,8 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3など
 2. **ホストプログラムの配置**
     - `aviutl.exe` と同じ階層に `audio_exe` という名前のフォルダを作成してください。
     - 使用したいオーディオプラグイン形式に対応したホストプログラム（例: `VstHost.exe`）を、この `audio_exe` フォルダ内に配置してください。
-      - VST3用ホスト: [VST_host](https://github.com/Book-0225/VST_host) のリリースから `VstHost.exe` をダウンロードしてください。
+      - VST3用ホスト: [VST_host](https://github.com/Book-0225/VST_host) のリリースから `VstHost.zip` をダウンロードして中の`VSTHost.exe`を取り出してください。
+      - CLAP用ホスト [CLAP_Host](https://github.com/Book-0225/CLAP_Host) のリリースから `CLAPHost.exe` をダウンロードしてください。
 
 3. **ホストプログラムの関連付け**
     - `audio_exe` フォルダ内に `audio_plugin_link.ini` という名前でテキストファイルを作成します。
