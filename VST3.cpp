@@ -55,6 +55,7 @@ bool SendCommandToHost(HostState& state, const char* command, char* response, DW
 
 class HostState {
 public:
+    TCHAR loaded_vst_path[MAX_PATH] = { 0 };
     uint64_t unique_id = 0;
     std::atomic<bool> host_running = false;
     std::atomic<bool> gui_visible = false;
@@ -100,7 +101,7 @@ std::unordered_map<uint32_t, std::unique_ptr<HostState>> g_host_states;
 // =================================================================
 // 拡張編集プラグイン定義
 // =================================================================
-#define PLUGIN_VERSION "v0.0.2"
+#define PLUGIN_VERSION "v0.0.3"
 #define PLUGIN_AUTHOR "BOOK25"
 #define FILTER_NAME "VST3 Host"
 #define FILTER_INFO_FMT(name, ver, author) (name " " ver " by " author)
@@ -163,18 +164,35 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
     auto* exdata = reinterpret_cast<Exdata*>(efp->exdata_ptr);
     uint32_t object_id = static_cast<uint32_t>(efp->processing);
 
-    if (_tcslen(exdata->vst_path) == 0 || efpip->audio_n == 0) return TRUE;
+    if (_tcslen(exdata->vst_path) == 0 || efpip->audio_n == 0) {
+        std::lock_guard<std::mutex> lock(g_states_mutex);
+        if (g_host_states.count(object_id)) {
+            DbgPrint(_T("VST path is empty, cleaning up leftover host for object %u."), object_id);
+            g_host_states.erase(object_id);
+        }
+        return TRUE;
+    }
 
     std::lock_guard<std::mutex> lock(g_states_mutex);
+    auto it = g_host_states.find(object_id);
+    if (it != g_host_states.end()) {
+        if (_tcscmp(it->second->loaded_vst_path, exdata->vst_path) != 0) {
+            DbgPrint(_T("VST path mismatch for object %u. Old: '%s', New: '%s'. Re-launching host."),
+                object_id, it->second->loaded_vst_path, exdata->vst_path);
+            g_host_states.erase(it);
+        }
+    }
     if (g_host_states.find(object_id) == g_host_states.end()) {
         g_host_states[object_id] = std::make_unique<HostState>();
     }
     auto& state = *g_host_states[object_id];
 
     if (!state.host_running) {
+        _tcscpy_s(state.loaded_vst_path, MAX_PATH, exdata->vst_path);
         if (!LaunchHostProcess(efp, efpip, state)) {
             DbgPrint(_T("func_proc: Host launch failed for obj %u. Bypassing."), object_id);
-            g_host_states.erase(object_id); return TRUE;
+            g_host_states.erase(object_id);
+            return TRUE;
         }
     }
     if (!state.pSharedMem) return TRUE;
@@ -223,7 +241,8 @@ BOOL func_proc(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip) {
             DbgPrint(_T("Host processing timed out/failed (result: %lu). Bypassing."), waitResult);
             if (waitResult != WAIT_TIMEOUT) {
                 DbgPrint(_T("Host process likely terminated. Cleaning up."));
-                g_host_states.erase(object_id); return TRUE;
+                g_host_states.erase(object_id);
+                return TRUE;
             }
             memcpy(audio_out + samples_processed * efpip->audio_ch, audio_in + samples_processed * efpip->audio_ch, samples_to_process * efpip->audio_ch * sizeof(short));
         }
@@ -297,8 +316,7 @@ BOOL func_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, AviUtl:
             if (is_hiding) {
                 DbgPrint(_T("GUI hidden. Getting state to save."));
                 lock.unlock();
-                if (SaveStateIfGuiVisible(efp)) {
-                }
+                SaveStateIfGuiVisible(efp);
                 lock.lock();
             }
             state.gui_visible = !is_hiding;
@@ -407,20 +425,31 @@ bool LaunchHostProcess(ExEdit::Filter* efp, ExEdit::FilterProcInfo* efpip, HostS
 #else
     strcpy_s(vst_path_mb, MAX_PATH, exdata->vst_path);
 #endif
-    char cmd_buffer[1024];
+
+    std::vector<char> cmd_buffer;
     char response[256];
-    sprintf_s(cmd_buffer, "load_plugin \"%s\" %f %d\n", vst_path_mb, (double)efpip->audio_rate, MAX_BLOCK_SIZE);
-    if (!SendCommandToHost(state, cmd_buffer, response, sizeof(response)) || strncmp(response, "OK", 2) != 0) {
-        DbgPrint(_T("Failed to load plugin. Response: %hs"), response); return false;
-    }
+
     if (strlen(exdata->state_b64) > 0) {
-        DbgPrint(_T("Restoring saved state..."));
-        std::vector<char> set_cmd(strlen(exdata->state_b64) + 32);
-        sprintf_s(set_cmd.data(), set_cmd.size(), "set_state %s\n", exdata->state_b64);
-        if (!SendCommandToHost(state, set_cmd.data(), response, sizeof(response)) || strncmp(response, "OK", 2) != 0) {
-            DbgPrint(_T("Failed to restore state. Response: %hs"), response);
-        }
-        else { DbgPrint(_T("State restored successfully.")); }
+        DbgPrint(_T("Preparing to load plugin and restore state..."));
+        size_t state_len = strlen(exdata->state_b64);
+        cmd_buffer.resize(state_len + 1024);
+        sprintf_s(cmd_buffer.data(), cmd_buffer.size(), "load_and_set_state \"%s\" %f %d %s\n",
+            vst_path_mb,
+            (double)efpip->audio_rate,
+            MAX_BLOCK_SIZE,
+            exdata->state_b64);
+    }
+    else {
+        DbgPrint(_T("Preparing to load plugin..."));
+        cmd_buffer.resize(1024);
+        sprintf_s(cmd_buffer.data(), cmd_buffer.size(), "load_plugin \"%s\" %f %d\n",
+            vst_path_mb,
+            (double)efpip->audio_rate,
+            MAX_BLOCK_SIZE);
+    }
+    if (!SendCommandToHost(state, cmd_buffer.data(), response, sizeof(response)) || strncmp(response, "OK", 2) != 0) {
+        DbgPrint(_T("Failed to configure plugin. Response: %hs"), response);
+        return false;
     }
     DbgPrint(_T("Host launched and plugin configured successfully."));
     return true;
@@ -431,7 +460,11 @@ bool SendCommandToHost(HostState& state, const char* command, char* response, DW
     DWORD bytesWritten;
     if (!WriteFile(state.hPipe, command, (DWORD)strlen(command), &bytesWritten, NULL)) return false;
     DWORD bytesRead;
-    if (!ReadFile(state.hPipe, response, responseSize - 1, &bytesRead, NULL)) return false;
+    // 応答を待つタイムアウトを追加
+    if (!ReadFile(state.hPipe, response, responseSize - 1, &bytesRead, NULL)) {
+        DbgPrint(_T("ReadFile from pipe failed. Error: %lu"), GetLastError());
+        return false;
+    }
     response[bytesRead] = '\0';
     return true;
 }
