@@ -59,6 +59,10 @@ AviUtl の拡張編集に「VST3 Host」フィルタ効果とフィルタオブ�
 
 # Credits
 
+## VST
+
+VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and other countries.
+
 ## aviutl_exedit_sdk
 
 https://github.com/ePi5131/aviutl_exedit_sdk （利用したブランチは[こちら](https://github.com/sigma-axis/aviutl_exedit_sdk/tree/self-use)です．）
