@@ -1,6 +1,6 @@
 # 外部音声処理 AviUtl 拡張編集フィルタプラグイン
 
-AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAPなど）を読み込むためのフィルタオブジェクトを追加するプラグインです。
+AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAPなど）や独立した音声処理プログラムを読み込むためのフィルタオブジェクトを追加するプラグインです。
 
 ## 注意事項
 
@@ -26,9 +26,9 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAP
 
 2. **ホストプログラムの配置**
     - `aviutl.exe` と同じ階層に `audio_exe` という名前のフォルダを作成してください。
-    - 使用したいオーディオプラグイン形式に対応したホストプログラム（例: `VstHost.exe`）を、この `audio_exe` フォルダ内に配置してください。
+    - 使用したいオーディオプラグイン形式に対応したホストプログラムや、独立した音声処理プログラムを、この `audio_exe` フォルダ内に配置してください。
       - VST3用ホスト: [VST_host](https://github.com/Book-0225/VST_host) のリリースから `VstHost.zip` をダウンロードして中の`VSTHost.exe`を取り出してください。
-      - CLAP用ホスト [CLAP_Host](https://github.com/Book-0225/CLAP_Host) のリリースから `CLAPHost.exe` をダウンロードしてください。
+      - CLAP用ホスト: [CLAP_Host](https://github.com/Book-0225/CLAP_Host) のリリースから `CLAPHost.exe` をダウンロードしてください。
 
 3. **ホストプログラムの関連付け**
     - `audio_exe` フォルダ内に `audio_plugin_link.ini` という名前でテキストファイルを作成します。
@@ -41,26 +41,30 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAP
     .clap=CLAPHost.exe
     ```
 
+    - **Note**: 実行可能ファイル(`.exe`)を直接ホストとして使用する場合は、このINIファイルへの記述は不要です。
+
 ## 使い方
 
 - **オブジェクトの追加と設定**
   1. 拡張編集のタイムラインで右クリックし、「フィルタオブジェクトの追加」から「Audio Plugin Host」を追加します。
-  2. 設定ダイアログの「プラグインを選択」ボタンを押し、使用したいオーディオプラグインファイル（`.vst3`など）を選択します。
+  2. 設定ダイアログの「プラグインを選択」ボタンを押します。
+     - **外部プラグインを使う場合**: 使用したいオーディオプラグインファイル（`.vst3`, `.clap`など）を選択します。
+     - **独立したプログラムを使う場合**: ファイルの種類を「Executable Host (*.exe)」に変更し、使用したい音声処理プログラム（`.exe`）を選択します。
   3. **一度、フィルタを適用した部分をプレビュー再生します。**
       - これにより、対応するホストプログラムがバックグラウンドで起動します。読み込みに時間がかかる場合があるため、10秒ほど待ってから次の手順に進んでください。
-  4. 「プラグインGUIを表示」ボタンを押して、プラグインの画面を開き、設定を調整します。
+  4. 「プラグインGUIを表示」ボタンを押して、ホストプログラムの画面を開き、設定を調整します。
   5. 設定が終わったら、**必ず「プラグインGUIを非表示」ボタンを押してGUIを閉じてください。**
-      - **重要**: この操作を行わないと、プラグインの状態がプロジェクトファイルに保存されません。
+      - **重要**: 外部プラグインを使用している場合、この操作を行わないとプラグインの状態がプロジェクトファイルに保存されません。
 
 - **書き出し時**
-  1. 開いているプラグインのGUIをすべて「プラグインGUIを非表示」ボタンで閉じます。
+  1. 開いているプラグインやホストのGUIをすべて「プラグインGUIを非表示」ボタンで閉じます。
   2. 書き出し範囲のプレビューを最初から最後まで再生することをお勧めします。
       - これにより、ホストプログラムの処理が安定し、書き出し時に無音区間が発生するのを防ぎます。
   3. AviUtlの書き出し機能（「ファイル」→「プラグイン出力」など）で動画を出力します。
 
 ## 開発者向け情報: 独自ホストプログラムの作成
 
-このプラグインは、標準化されたIPC（プロセス間通信）の仕組みを通じて、さまざまな種類のオーディオプラグインホストと連携できます。独自のホストプログラムを作成する際は、以下の仕様に従ってください。
+このプラグインは、標準化されたIPC（プロセス間通信）の仕組みを通じて、さまざまな種類のオーディオ処理ホストと連携できます。独自のホストプログラムを作成する際は、以下の仕様に従ってください。
 
 ### 起動コマンドライン引数
 
@@ -68,8 +72,9 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAP
 
 ```"YourHost.exe" -uid <unique_id> -pipe <pipe_base_name> -shm <shm_base_name> -event_ready <event_ready_base_name> -event_done <event_done_base_name>```
 
+
 - `-uid`: 64bitのユニークID。IPCオブジェクト名の一意性を確保するために使用します。
-- `-pipe`, `-shm`, `-event_ready`, `-event_done`: 各IPCオブジェクトのベース名。ホスト側はこれらに `_` と `<unique_id>` を付与して実際のオブジェクト名とします。（例: `\\.\pipe\AviUtlVstBridge_123456789`）
+- `-pipe`, `-shm`, `-event_ready`, `-event_done`: 各IPCオブジェクトのベース名。ホスト側はこれらに `_` と `<unique_id>` を付与して実際のオブジェクト名とします。（例: `\\.\pipe\AviUtlAudioBridge_123456789`）
 
 ### プロセス間通信（IPC）
 
@@ -106,30 +111,45 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAP
 
 ホストプログラムは以下のコマンドを解釈できるようにしてください。
 
-- `load_plugin "<path>" <sample_rate> <max_block_size>`
-  - 指定されたパスのプラグインを読み込み、初期化します。
-  - 応答: `OK\n` または `Error: ...\n`
-- `load_and_set_state "<path>" <sample_rate> <max_block_size> <state_base64>`
-  - プラグインを読み込み、Base64エンコードされた状態でリストアします。
-  - 応答: `OK\n` または `Error: ...\n`
-- `get_state`
-  - 現在のプラグインの状態をBase64エンコードされた文字列で要求します。
-  - 応答: `OK <state_base64>\n` または `Error: ...\n`
-- `show_gui` / `hide_gui`
-  - プラグインのGUIの表示/非表示を切り替えます。
-  - 応答: `OK\n` または `Error: ...\n`
-- `exit`
-  - ホストプロセスを正常に終了させます。
-  - 応答: `OK\n`
+- **プラグインをロードするホスト向け**
+  - `load_plugin "<path>" <sample_rate> <max_block_size>`
+    - 指定されたパスのプラグインを読み込み、初期化します。
+    - 応答: `OK\n` または `Error: ...\n`
+  - `load_and_set_state "<path>" <sample_rate> <max_block_size> <state_base64>`
+    - プラグインを読み込み、Base64エンコードされた状態でリストアします。
+    - 応答: `OK\n` または `Error: ...\n`
+  - `get_state`
+    - 現在のプラグインの状態をBase64エンコードされた文字列で要求します。
+    - 応答: `OK <state_base64>\n` または `Error: ...\n`
+
+- **スタンドアロンEXEホスト向け**
+  - `init <sample_rate> <max_block_size>`
+    - ホストのオーディオ処理を初期化します。プラグインのロードは行いません。
+    - 応答: `OK\n` または `Error: ...\n`
+
+- **全ホスト共通**
+  - `show_gui` / `hide_gui`
+    - GUIの表示/非表示を切り替えます。
+    - 応答: `OK\n` または `Error: ...\n`
+  - `exit`
+    - ホストプロセスを正常に終了させます。
+    - 応答: `OK\n`
 
 ## 改版履歴
 
+- **v0.2.0**
+  - **新機能: スタンドアロンEXEホスト機能**
+    - 外部プラグインを必要としない、独立した音声処理プログラム(`.exe`)を直接ホストとして起動する機能を追加。
+  - **安定性向上: クラッシュハンドリング強化**
+    - ホストプログラムが予期せず終了した場合に自動で再起動を試みるロジックを実装。
+    - 再起動を短時間に繰り返すクラッシュループを検出し、該当オブジェクトの処理を一時的に無効化する機能を追加。  
+    これによりAviUtl全体の不安定化を防ぎます。
 - **v0.1.0**
   - 複数種類のプラグイン形式に対応する汎用的な基盤に刷新。
   - `audio_exe`フォルダと`audio_plugin_link.ini`による、ホストプログラムの動的な選択機構を導入。
   - ファイル選択ダイアログがINIファイルの内容に応じて動的にフィルタを生成するように修正。
   - プラグイン名を「VST3 Host」から「Audio Plugin Host」に変更。
-  - **注意 前バージョンまでとは互換性がありません。**
+  - **注意: v0.0.3以前とは互換性がありません。**
 - **v0.0.3**
   - `VSTHost.exe`の更新に合わせ、状態復元コマンド `load_and_set_state` を使うように変更。
   - データのロードタイミングによるクラッシュを修正。
@@ -139,21 +159,23 @@ AviUtl の拡張編集に、外部のオーディオプラグイン（VST3, CLAP
   - 初版。
 
 ## License
+
 MIT License
 
 ## Credits
 
 ### aviutl_exedit_sdk
+
 https://github.com/ePi5131/aviutl_exedit_sdk （利用したブランチは[こちら](https://github.com/sigma-axis/aviutl_exedit_sdk/tree/self-use)です．）
 
 ---
 
-1条項BSD
-
-Copyright (c) 2022
-ePi All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-THIS SOFTWARE IS PROVIDED BY ePi “AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ePi BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+> 1条項BSD
+>
+> Copyright (c) 2022
+> ePi All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+>
+> Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+> THIS SOFTWARE IS PROVIDED BY ePi “AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ePi BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
